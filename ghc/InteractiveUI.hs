@@ -78,7 +78,8 @@ import Panic hiding ( showException )
 import Util
 
 -- Haskell Libraries
-import System.Console.Haskeline as Haskeline
+-- import System.Console.Haskeline as Haskeline
+import System.Console.Haskeline.Class as Haskeline
 
 import Control.Applicative hiding (empty)
 import Control.Monad as Monad
@@ -244,13 +245,13 @@ flagWordBreakChars :: String
 flagWordBreakChars = " \t\n"
 
 
-keepGoing :: (String -> GHCi ()) -> (String -> InputT GHCi Bool)
+keepGoing :: (String -> GHCi ()) -> (String -> HaskelineT GHCi Bool)
 keepGoing a str = keepGoing' (lift . a) str
 
 keepGoing' :: Monad m => (String -> m ()) -> String -> m Bool
 keepGoing' a str = a str >> return False
 
-keepGoingPaths :: ([FilePath] -> InputT GHCi ()) -> (String -> InputT GHCi Bool)
+keepGoingPaths :: ([FilePath] -> HaskelineT GHCi ()) -> (String -> HaskelineT GHCi Bool)
 keepGoingPaths a str
  = do case toArgs str of
           Left err -> liftIO $ hPutStrLn stderr err
@@ -514,11 +515,11 @@ runGHCi paths maybe_exprs = do
          either_hdl <- liftIO $ tryIO (openFile file ReadMode)
          case either_hdl of
            Left _e   -> return ()
-           -- NOTE: this assumes that runInputT won't affect the terminal;
+           -- NOTE: this assumes that runHaskelineT won't affect the terminal;
            -- can we assume this will always be the case?
-           -- This would be a good place for runFileInputT.
+           -- This would be a good place for runFileHaskelineT.
            Right hdl ->
-               do runInputTWithPrefs defaultPrefs defaultSettings $
+               do runHaskelineTWithPrefs defaultPrefs defaultSettings $
                             runCommands $ fileLoop hdl
                   liftIO (hClose hdl `catchIO` \_ -> return ())
      where
@@ -540,7 +541,7 @@ runGHCi paths maybe_exprs = do
   when (not (null paths)) $ do
      ok <- ghciHandle (\e -> do showException e; return Failed) $
                 -- TODO: this is a hack.
-                runInputTWithPrefs defaultPrefs defaultSettings $
+                runHaskelineTWithPrefs defaultPrefs defaultSettings $
                     loadModule paths
      when (isJust maybe_exprs && failed ok) $
         liftIO (exitWith (ExitFailure 1))
@@ -572,26 +573,26 @@ runGHCi paths maybe_exprs = do
                             liftIO $ withProgName (progname st)
                                    $ topHandler e
                                    -- this used to be topHandlerFastExit, see #2228
-            runInputTWithPrefs defaultPrefs defaultSettings $ do
+            runHaskelineTWithPrefs defaultPrefs defaultSettings $ do
                 -- make `ghc -e` exit nonzero on invalid input, see Trac #7962
                 runCommands' hdle (Just $ hdle (toException $ ExitFailure 1) >> return ()) (return Nothing)
 
   -- and finally, exit
   liftIO $ when (verbosity dflags > 0) $ putStrLn "Leaving GHCi."
 
-runGHCiInput :: InputT GHCi a -> GHCi a
+runGHCiInput :: HaskelineT GHCi a -> GHCi a
 runGHCiInput f = do
     dflags <- getDynFlags
     histFile <- if gopt Opt_GhciHistory dflags
                 then liftIO $ withGhcAppData (\dir -> return (Just (dir </> "ghci_history")))
                                              (return Nothing)
                 else return Nothing
-    runInputT
+    runHaskelineT
         (setComplete ghciCompleteWord $ defaultSettings {historyFile = histFile})
         f
 
 -- | How to get the next input line from the user
-nextInputLine :: Bool -> Bool -> InputT GHCi (Maybe String)
+nextInputLine :: Bool -> Bool -> HaskelineT GHCi (Maybe String)
 nextInputLine show_prompt is_tty
   | is_tty = do
     prmpt <- if show_prompt then lift mkPrompt else return ""
@@ -633,13 +634,13 @@ checkPerms name =
             else return True
 #endif
 
-incrementLineNo :: InputT GHCi ()
+incrementLineNo :: HaskelineT GHCi ()
 incrementLineNo = do
    st <- lift $ getGHCiState
    let ln = 1+(line_number st)
    lift $ setGHCiState st{line_number=ln}
 
-fileLoop :: Handle -> InputT GHCi (Maybe String)
+fileLoop :: Handle -> HaskelineT GHCi (Maybe String)
 fileLoop hdl = do
    l <- liftIO $ tryIO $ hGetLine hdl
    case l of
@@ -724,12 +725,12 @@ installInteractivePrint (Just ipFun) exprmode = do
   when (failed ok && exprmode) $ liftIO (exitWith (ExitFailure 1))
 
 -- | The main read-eval-print loop
-runCommands :: InputT GHCi (Maybe String) -> InputT GHCi ()
+runCommands :: HaskelineT GHCi (Maybe String) -> HaskelineT GHCi ()
 runCommands = runCommands' handler Nothing
 
 runCommands' :: (SomeException -> GHCi Bool) -- ^ Exception handler
              -> Maybe (GHCi ()) -- ^ Source error handler
-             -> InputT GHCi (Maybe String) -> InputT GHCi ()
+             -> HaskelineT GHCi (Maybe String) -> HaskelineT GHCi ()
 runCommands' eh sourceErrorHandler gCmd = do
     b <- ghandle (\e -> case fromException e of
                           Just UserInterrupt -> return $ Just False
@@ -747,8 +748,8 @@ runCommands' eh sourceErrorHandler gCmd = do
         runCommands' eh sourceErrorHandler gCmd
 
 -- | Evaluate a single line of user input (either :<command> or Haskell code)
-runOneCommand :: (SomeException -> GHCi Bool) -> InputT GHCi (Maybe String)
-            -> InputT GHCi (Maybe Bool)
+runOneCommand :: (SomeException -> GHCi Bool) -> HaskelineT GHCi (Maybe String)
+            -> HaskelineT GHCi (Maybe Bool)
 runOneCommand eh gCmd = do
   -- run a previously queued command if there is one, otherwise get new
   -- input from user
@@ -796,7 +797,7 @@ runOneCommand eh gCmd = do
     collectError = userError "unterminated multiline command :{ .. :}"
 
     -- | Handle a line of input
-    doCommand :: String -> InputT GHCi (Maybe Bool)
+    doCommand :: String -> HaskelineT GHCi (Maybe Bool)
 
     -- command
     doCommand stmt | (':' : cmd) <- removeSpaces stmt = do
@@ -849,8 +850,8 @@ runOneCommand eh gCmd = do
 
 -- #4316
 -- lex the input.  If there is an unclosed layout context, request input
-checkInputForLayout :: String -> InputT GHCi (Maybe String)
-                    -> InputT GHCi (Maybe String)
+checkInputForLayout :: String -> HaskelineT GHCi (Maybe String)
+                    -> HaskelineT GHCi (Maybe String)
 checkInputForLayout stmt getStmt = do
    dflags' <- lift $ getDynFlags
    let dflags = xopt_set dflags' Opt_AlternativeLayoutRule
@@ -1005,7 +1006,7 @@ printTypeOfName n
 data MaybeCommand = GotCommand Command | BadCommand | NoLastCommand
 
 -- | Entry point for execution a ':<command>' input from user
-specialCommand :: String -> InputT GHCi Bool
+specialCommand :: String -> HaskelineT GHCi Bool
 specialCommand ('!':str) = lift $ shellEscape (dropWhile isSpace str)
 specialCommand str = do
   let (cmd,rest) = break isSpace str
@@ -1118,7 +1119,7 @@ help _ = do
 -----------------------------------------------------------------------------
 -- :info
 
-info :: Bool -> String -> InputT GHCi ()
+info :: Bool -> String -> HaskelineT GHCi ()
 info _ "" = throwGhcException (CmdLineError "syntax: ':i <thing-you-want-info-about>'")
 info allInfo s  = handleSourceError GHC.printException $ do
     unqual <- GHC.getPrintUnqual
@@ -1183,7 +1184,7 @@ doWithArgs args cmd = enqueueCommands ["System.Environment.withArgs " ++
 -----------------------------------------------------------------------------
 -- :cd
 
-changeDirectory :: String -> InputT GHCi ()
+changeDirectory :: String -> HaskelineT GHCi ()
 changeDirectory "" = do
   -- :cd on its own changes to the user's home directory
   either_dir <- liftIO $ tryIO getHomeDirectory
@@ -1210,7 +1211,7 @@ trySuccess act =
 -----------------------------------------------------------------------------
 -- :edit
 
-editFile :: String -> InputT GHCi ()
+editFile :: String -> HaskelineT GHCi ()
 editFile str =
   do file <- if null str then lift chooseEditFile else expandPath str
      st <- lift getGHCiState
@@ -1329,7 +1330,7 @@ cmdCmd str = do
 -----------------------------------------------------------------------------
 -- :check
 
-checkModule :: String -> InputT GHCi ()
+checkModule :: String -> HaskelineT GHCi ()
 checkModule m = do
   let modl = GHC.mkModuleName m
   ok <- handleSourceError (\e -> GHC.printException e >> return False) $ do
@@ -1352,13 +1353,13 @@ checkModule m = do
 -----------------------------------------------------------------------------
 -- :load, :add, :reload
 
-loadModule :: [(FilePath, Maybe Phase)] -> InputT GHCi SuccessFlag
+loadModule :: [(FilePath, Maybe Phase)] -> HaskelineT GHCi SuccessFlag
 loadModule fs = timeIt (loadModule' fs)
 
-loadModule_ :: [FilePath] -> InputT GHCi ()
+loadModule_ :: [FilePath] -> HaskelineT GHCi ()
 loadModule_ fs = loadModule (zip fs (repeat Nothing)) >> return ()
 
-loadModule' :: [(FilePath, Maybe Phase)] -> InputT GHCi SuccessFlag
+loadModule' :: [(FilePath, Maybe Phase)] -> HaskelineT GHCi SuccessFlag
 loadModule' files = do
   let (filenames, phases) = unzip files
   exp_filenames <- mapM expandPath filenames
@@ -1389,7 +1390,7 @@ loadModule' files = do
   return flag
 
 -- :add
-addModule :: [FilePath] -> InputT GHCi ()
+addModule :: [FilePath] -> HaskelineT GHCi ()
 addModule files = do
   lift revertCAFs -- always revert CAFs on load/add.
   files' <- mapM expandPath files
@@ -1402,7 +1403,7 @@ addModule files = do
 
 
 -- :reload
-reloadModule :: String -> InputT GHCi ()
+reloadModule :: String -> HaskelineT GHCi ()
 reloadModule m = do
   _ <- doLoad True $
         if null m then LoadAllTargets
@@ -1410,7 +1411,7 @@ reloadModule m = do
   return ()
 
 
-doLoad :: Bool -> LoadHowMuch -> InputT GHCi SuccessFlag
+doLoad :: Bool -> LoadHowMuch -> HaskelineT GHCi SuccessFlag
 doLoad retain_context howmuch = do
   -- turn off breakpoints before we load: we can't turn them off later, because
   -- the ModBreaks will have gone away.
@@ -1431,7 +1432,7 @@ doLoad retain_context howmuch = do
 
 afterLoad :: SuccessFlag
           -> Bool   -- keep the remembered_ctx, as far as possible (:reload)
-          -> InputT GHCi ()
+          -> HaskelineT GHCi ()
 afterLoad ok retain_context = do
   lift revertCAFs  -- always revert CAFs on load.
   lift discardTickArrays
@@ -1510,7 +1511,7 @@ keepPackageImports = filterM is_pkg_import
           mod_name = unLoc (ideclName d)
 
 
-modulesLoadedMsg :: SuccessFlag -> [Module] -> InputT GHCi ()
+modulesLoadedMsg :: SuccessFlag -> [Module] -> HaskelineT GHCi ()
 modulesLoadedMsg ok mods = do
   dflags <- getDynFlags
   unqual <- GHC.getPrintUnqual
@@ -1530,7 +1531,7 @@ modulesLoadedMsg ok mods = do
 -----------------------------------------------------------------------------
 -- :type
 
-typeOfExpr :: String -> InputT GHCi ()
+typeOfExpr :: String -> HaskelineT GHCi ()
 typeOfExpr str
   = handleSourceError GHC.printException
   $ do
@@ -1540,7 +1541,7 @@ typeOfExpr str
 -----------------------------------------------------------------------------
 -- :type-at
 
-typeAt :: String -> InputT GHCi ()
+typeAt :: String -> HaskelineT GHCi ()
 typeAt str =
   handleSourceError
     GHC.printException
@@ -1558,7 +1559,7 @@ typeAt str =
 -----------------------------------------------------------------------------
 -- :uses
 
-findAllUses :: String -> InputT GHCi ()
+findAllUses :: String -> HaskelineT GHCi ()
 findAllUses str =
   handleSourceError GHC.printException $
   case parseSpan str of
@@ -1591,7 +1592,7 @@ findAllUses str =
 -----------------------------------------------------------------------------
 -- :all-types
 
-allTypes :: String -> InputT GHCi ()
+allTypes :: String -> HaskelineT GHCi ()
 allTypes _ =
   handleSourceError
     GHC.printException
@@ -1626,7 +1627,7 @@ allTypes _ =
 -----------------------------------------------------------------------------
 -- :loc-at
 
-locationAt :: String -> InputT GHCi ()
+locationAt :: String -> HaskelineT GHCi ()
 locationAt str =
   handleSourceError GHC.printException $
   case parseSpan str of
@@ -1682,7 +1683,7 @@ parseSpan s =
 -----------------------------------------------------------------------------
 -- :kind
 
-kindOfType :: Bool -> String -> InputT GHCi ()
+kindOfType :: Bool -> String -> HaskelineT GHCi ()
 kindOfType norm str
   = handleSourceError GHC.printException
   $ do
@@ -1694,7 +1695,7 @@ kindOfType norm str
 -----------------------------------------------------------------------------
 -- :quit
 
-quit :: String -> InputT GHCi Bool
+quit :: String -> HaskelineT GHCi Bool
 quit _ = return True
 
 
@@ -1703,14 +1704,14 @@ quit _ = return True
 
 -- running a script file #1363
 
-scriptCmd :: String -> InputT GHCi ()
+scriptCmd :: String -> HaskelineT GHCi ()
 scriptCmd ws = do
   case words ws of
     [s]    -> runScript s
     _      -> throwGhcException (CmdLineError "syntax:  :script <filename>")
 
 runScript :: String    -- ^ filename
-           -> InputT GHCi ()
+           -> HaskelineT GHCi ()
 runScript filename = do
   filename' <- expandPath filename
   either_script <- liftIO $ tryIO (openFile filename' ReadMode)
@@ -1739,7 +1740,7 @@ runScript filename = do
 
 -- Displaying Safe Haskell properties of a module
 
-isSafeCmd :: String -> InputT GHCi ()
+isSafeCmd :: String -> HaskelineT GHCi ()
 isSafeCmd m =
     case words m of
         [s] | looksLikeModuleName s -> do
@@ -1749,7 +1750,7 @@ isSafeCmd m =
                  isSafeModule md
         _ -> throwGhcException (CmdLineError "syntax:  :issafe <module>")
 
-isSafeModule :: Module -> InputT GHCi ()
+isSafeModule :: Module -> HaskelineT GHCi ()
 isSafeModule m = do
     mb_mod_info <- GHC.getModuleInfo m
     when (isNothing mb_mod_info)
@@ -1806,7 +1807,7 @@ isSafeModule m = do
 
 -- Browsing a module's contents
 
-browseCmd :: Bool -> String -> InputT GHCi ()
+browseCmd :: Bool -> String -> HaskelineT GHCi ()
 browseCmd bang m =
   case words m of
     ['*':s] | looksLikeModuleName s -> do
@@ -1819,7 +1820,7 @@ browseCmd bang m =
              browseModule bang md True
     _ -> throwGhcException (CmdLineError "syntax:  :browse <module>")
 
-guessCurrentModule :: String -> InputT GHCi Module
+guessCurrentModule :: String -> HaskelineT GHCi Module
 -- Guess which module the user wants to browse.  Pick
 -- modules that are interpreted first.  The most
 -- recently-added module occurs last, it seems.
@@ -1835,7 +1836,7 @@ guessCurrentModule cmd
 -- with bang, show class methods and data constructors separately, and
 --            indicate import modules, to aid qualifying unqualified names
 -- with sorted, sort items alphabetically
-browseModule :: Bool -> Module -> Bool -> InputT GHCi ()
+browseModule :: Bool -> Module -> Bool -> HaskelineT GHCi ()
 browseModule bang modl exports_only = do
   -- :browse reports qualifiers wrt current context
   unqual <- GHC.getPrintUnqual
@@ -3063,10 +3064,10 @@ end_bold   = "\ESC[0m"
 -----------------------------------------------------------------------------
 -- :list
 
-listCmd :: String -> InputT GHCi ()
+listCmd :: String -> HaskelineT GHCi ()
 listCmd c = listCmd' c
 
-listCmd' :: String -> InputT GHCi ()
+listCmd' :: String -> HaskelineT GHCi ()
 listCmd' "" = do
    mb_span <- lift getCurrentBreakSpan
    case mb_span of
@@ -3088,7 +3089,7 @@ listCmd' "" = do
                                    $$ text "Try" <+> doWhat)
 listCmd' str = list2 (words str)
 
-list2 :: [String] -> InputT GHCi ()
+list2 :: [String] -> HaskelineT GHCi ()
 list2 [arg] | all isDigit arg = do
     imports <- GHC.getContext
     case iiModules imports of
@@ -3122,7 +3123,7 @@ list2 [arg] = do
 list2  _other =
         liftIO $ putStrLn "syntax:  :list [<line> | <module> <line> | <identifier>]"
 
-listModuleLine :: Module -> Int -> InputT GHCi ()
+listModuleLine :: Module -> Int -> HaskelineT GHCi ()
 listModuleLine modl line = do
    graph <- GHC.getModuleGraph
    let this = filter ((== modl) . GHC.ms_mod) graph
@@ -3142,7 +3143,7 @@ listModuleLine modl line = do
 -- 2) convert the BS to String using utf-string, and write it out.
 -- It would be better if we could convert directly between UTF-8 and the
 -- console encoding, of course.
-listAround :: MonadIO m => RealSrcSpan -> Bool -> InputT m ()
+listAround :: MonadIO m => RealSrcSpan -> Bool -> HaskelineT m ()
 listAround pan do_highlight = do
       contents <- liftIO $ BS.readFile (unpackFS file)
       let ls  = BS.split '\n' contents
@@ -3352,7 +3353,7 @@ isHomeModule m = modulePackage m == mainPackageKey
 
 -- TODO: won't work if home dir is encoded.
 -- (changeDirectory may not work either in that case.)
-expandPath :: MonadIO m => String -> InputT m String
+expandPath :: MonadIO m => String -> HaskelineT m String
 expandPath = liftIO . expandPathIO
 
 expandPathIO :: String -> IO String

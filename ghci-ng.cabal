@@ -15,6 +15,51 @@ cabal-version: >= 1.14
 
 extra-source-files: ghc/HsVersions.h rts/PosixSource.h
 
+library
+  hs-source-dirs:   ghc/
+  ghc-options:      -Wall -O2
+  c-sources:        ghc/hschooks.c
+  exposed-modules:  InteractiveUI
+                    GhciMonad
+                    GhciTags
+                    GhciTypes
+                    GhciInfo
+                    GhciFind
+                    HiePlugin
+  ghc-options:      -Wall -fno-warn-name-shadowing -threaded -dynamic
+  cpp-options:      -DGHCI
+  default-language: Haskell2010
+  default-extensions:
+    CPP
+    FlexibleInstances
+    MagicHash
+    NondecreasingIndentation
+    UnboxedTuples
+
+  -- In other words, demand at least version 7.8.
+  if impl(ghc<7.8)
+    build-depends: ghc >= 7.8
+  if impl(ghc>=7.8)
+    build-depends:
+      base,
+      array,
+      bytestring,
+      directory,
+      filepath,
+      ghc >= 7.8,
+      ghc-paths,
+      -- haskeline,
+      haskeline-class,
+      process,
+      transformers,
+      syb,
+      containers,
+      time
+  if os(windows)
+      build-depends: Win32
+  else
+      build-depends: unix
+
 executable ghci-ng
   main-is:          Main.hs
   hs-source-dirs:   ghc/
@@ -48,7 +93,8 @@ executable ghci-ng
       filepath,
       ghc >= 7.8,
       ghc-paths,
-      haskeline,
+      -- haskeline,
+      haskeline-class,
       process,
       transformers,
       syb,

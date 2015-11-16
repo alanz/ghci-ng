@@ -57,15 +57,18 @@ import Control.Applicative (Applicative(..))
 import Control.Monad
 import GHC.Exts
 
-import System.Console.Haskeline (CompletionFunc, InputT)
-import qualified System.Console.Haskeline as Haskeline
+-- import System.Console.Haskeline (CompletionFunc, InputT)
+import System.Console.Haskeline.Class (CompletionFunc, HaskelineT)
+-- import qualified System.Console.Haskeline as Haskeline
+import qualified System.Console.Haskeline.Class as Haskeline
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
 
 -----------------------------------------------------------------------------
 -- GHCi monad
 
-type Command = (String, String -> InputT GHCi Bool, CompletionFunc GHCi)
+-- type Command = (String, String -> InputT GHCi Bool, CompletionFunc GHCi)
+type Command = (String, String -> HaskelineT GHCi Bool, CompletionFunc GHCi)
 
 data GHCiState = GHCiState
      {
@@ -209,10 +212,10 @@ instance GhcMonad GHCi where
   setSession s' = liftGhc $ setSession s'
   getSession    = liftGhc $ getSession
 
-instance HasDynFlags (InputT GHCi) where
+instance HasDynFlags (HaskelineT GHCi) where
   getDynFlags = lift getDynFlags
 
-instance GhcMonad (InputT GHCi) where
+instance GhcMonad (HaskelineT GHCi) where
   setSession = lift . setSession
   getSession = lift getSession
 
@@ -235,7 +238,7 @@ instance Haskeline.MonadException GHCi where
                     run' = Haskeline.RunIO (fmap (GHCi . const) . run . flip unGHCi s)
                     in fmap (flip unGHCi s) $ f run'
 
-instance ExceptionMonad (InputT GHCi) where
+instance ExceptionMonad (HaskelineT GHCi) where
   gcatch = Haskeline.catch
   gmask f = Haskeline.liftIOOp gmask (f . Haskeline.liftIOOp_)
 
@@ -313,7 +316,7 @@ resume canLogSpan step = do
 -- --------------------------------------------------------------------------
 -- timing & statistics
 
-timeIt :: InputT GHCi a -> InputT GHCi a
+timeIt :: HaskelineT GHCi a -> HaskelineT GHCi a
 timeIt action
   = do b <- lift $ isOptionSet ShowTiming
        if not b

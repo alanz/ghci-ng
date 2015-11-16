@@ -170,11 +170,12 @@ Patches welcome.
 
 Patches welcome.
 
-## Supported GHC versions
+## Supported and tested GHC versions
 
 This project should ideally support the current major GHC version and
 the past major GHC version:
 
-* [GHC 7.8.4](https://github.com/ghc/ghc/releases/tag/ghc-7.8.4-release)
-* [GHC 7.8.3](https://github.com/ghc/ghc/releases/tag/ghc-7.8.3-release)
-* [GHC 7.8.2](https://github.com/ghc/ghc/releases/tag/ghc-7.8.2-release)
+*
+  [GHC 7.8.4](https://github.com/ghc/ghc/releases/tag/ghc-7.8.4-release)
+  (use the alternative stack.yaml-ghc-7.8 file)
+* [GHC 7.10.2](https://github.com/ghc/ghc/releases/tag/ghc-7.10.2-release)

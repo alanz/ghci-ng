@@ -393,9 +393,10 @@ default_stop = ""
 default_args :: [String]
 default_args = []
 
-interactiveUI :: GhciSettings -> [(FilePath, Maybe Phase)] -> Maybe [String]
+interactiveUI :: (Haskeline.Settings GHCi -> InputT GHCi () -> GHCi ())
+              -> GhciSettings -> [(FilePath, Maybe Phase)] -> Maybe [String]
               -> Ghc ()
-interactiveUI config srcs maybe_exprs = do
+interactiveUI runI config srcs maybe_exprs = do
    -- although GHCi compiles with -prof, it is not usable: the byte-code
    -- compiler and interpreter don't work with profiling.  So we check for
    -- this up front and emit a helpful error message (#2197)
@@ -448,7 +449,7 @@ interactiveUI config srcs maybe_exprs = do
 
    default_editor <- liftIO $ findEditor
 
-   startGHCi (runGHCi srcs maybe_exprs)
+   startGHCi (runGHCi runI srcs maybe_exprs)
         GHCiState{ progname       = default_progname,
                    GhciMonad.args = default_args,
                    prompt         = defPrompt config,
@@ -482,8 +483,9 @@ withGhcAppData right left = do
                right dir
         _ -> left
 
-runGHCi :: [(FilePath, Maybe Phase)] -> Maybe [String] -> GHCi ()
-runGHCi paths maybe_exprs = do
+runGHCi :: (Haskeline.Settings GHCi -> InputT GHCi () -> GHCi ())
+        -> [(FilePath, Maybe Phase)] -> Maybe [String] -> GHCi ()
+runGHCi runI paths maybe_exprs = do
   dflags <- getDynFlags
   let
    read_dot_files = not (gopt Opt_IgnoreDotGhci dflags)
@@ -559,7 +561,7 @@ runGHCi paths maybe_exprs = do
         Nothing ->
           do
             -- enter the interactive loop
-            runGHCiInput $ runCommands $ nextInputLine show_prompt is_tty
+            runGHCiInput runI $ runCommands $ nextInputLine show_prompt is_tty
         Just exprs -> do
             -- just evaluate the expression we were given
             enqueueCommands exprs
@@ -579,14 +581,21 @@ runGHCi paths maybe_exprs = do
   -- and finally, exit
   liftIO $ when (verbosity dflags > 0) $ putStrLn "Leaving GHCi."
 
-runGHCiInput :: InputT GHCi a -> GHCi a
-runGHCiInput f = do
+-- runInputT :: MonadException m => Settings m -> InputT m a -> m a
+-- runInputT = runInputTBehavior defaultBehavior
+
+-- runGHCiInput :: InputT GHCi a -> GHCi a
+runGHCiInput :: (Haskeline.Settings GHCi -> InputT GHCi a -> GHCi a)
+                   -- ^ Equivalent of 'runInputT', but may use customm 'Behavior'
+             -> InputT GHCi a -> GHCi a
+runGHCiInput runI f = do
     dflags <- getDynFlags
     histFile <- if gopt Opt_GhciHistory dflags
                 then liftIO $ withGhcAppData (\dir -> return (Just (dir </> "ghci_history")))
                                              (return Nothing)
                 else return Nothing
-    runInputT
+    -- runInputT
+    runI
         (setComplete ghciCompleteWord $ defaultSettings {historyFile = histFile})
         f
 

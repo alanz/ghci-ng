@@ -6,7 +6,10 @@ resolver: lts-3.7
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
-
+- location:
+    git: https://github.com/alanz/haskeline.git
+    commit: 4b29dccf32a3ce70af7b09a4682a89046ba95362
+  extra-dep: true
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []
 

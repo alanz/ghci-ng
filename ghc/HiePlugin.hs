@@ -1,7 +1,8 @@
 module HiePlugin
     (
-        hieBehavior
-      , hieToGhci
+        runGhciNg
+      -- , hieBehavior
+      -- , hieToGhci
       , OutData(..)
       , InData(..)
     ) where
@@ -12,6 +13,7 @@ import           Control.Monad.Trans.Class
 import qualified Data.Knob as K
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C8
+import           MainRunner
 import           System.Console.Haskeline
 import           System.IO
 
@@ -39,6 +41,15 @@ data OutData = Stdout String
 data InData = Stdin String
              deriving (Show)
 
+
+-- ---------------------------------------------------------------------
+
+-- | Start up a ghci-ng instance
+runGhciNg :: Chan InData -> Chan OutData -> IO ()
+runGhciNg chin chout = do
+  knob <- K.newKnob B.empty
+  _ <- forkIO (hieToGhci chin knob)
+  runMain (runInputTBehavior (hieBehavior knob chout))
 
 -- ---------------------------------------------------------------------
 

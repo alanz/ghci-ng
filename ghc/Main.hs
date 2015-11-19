@@ -16,8 +16,12 @@ import MainRunner
 
 import System.Console.Haskeline as Haskeline
 
+import System.Environment
+
 -----------------------------------------------------------------------------
 -- GHC's command-line interface
 
 main :: IO ()
-main = runMain runInputT
+main = do
+  argv00 <- getArgs
+  runMain runInputT argv00

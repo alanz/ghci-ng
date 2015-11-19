@@ -65,13 +65,23 @@ import System.Console.Haskeline as Haskeline
 
 -- Standard Haskell libraries
 import System.IO
-import System.Environment
+-- import System.Environment
 import System.Exit
 import System.FilePath
 import Control.Monad
 import Data.Char
 import Data.List
 import Data.Maybe
+
+import           Data.Time.Clock
+
+-- ---------------------------------------------------------------------
+
+appendLog :: String -> IO ()
+appendLog str = do
+    now <- getCurrentTime
+    let str' = (show now) ++ ":" ++ str ++ "\n"
+    appendFile "/tmp/ghci-ng.log" str'
 
 -----------------------------------------------------------------------------
 -- ToDo:
@@ -85,29 +95,37 @@ import Data.Maybe
 -----------------------------------------------------------------------------
 -- GHC's command-line interface
 
-runMain :: (Haskeline.Settings GHCi -> InputT GHCi () -> GHCi ()) -> IO ()
-runMain runI = do
+runMain :: (Haskeline.Settings GHCi -> InputT GHCi () -> GHCi ()) -> [String] -> IO ()
+runMain runI argv00 = do
+   liftIO $ appendLog $ "runMain entered"
    initGCStatistics -- See Note [-Bsymbolic and hooks]
    hSetBuffering stdout LineBuffering
    hSetBuffering stderr LineBuffering
    GHC.defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
+    liftIO $ appendLog $ "runMain entered 2"
     -- 1. extract the -B flag from the args
-    argv00 <- getArgs
+    -- argv00 <- getArgs
     let argv0 = ("-B" ++ GHC.Paths.libdir) :
                 if any (`elem` argv00) ["--info", "--interactive", "--make", "-c"]
                   then argv00 -- needed for "cabal repl --with-ghc=ghci-ng"
                   else "--interactive" : argv00
 
+    liftIO $ appendLog $ "runMain entered 2a"
     let (minusB_args, argv1) = partition ("-B" `isPrefixOf`) argv0
         mbMinusB | null minusB_args = Nothing
                  | otherwise = Just (drop 2 (last minusB_args))
 
+    liftIO $ appendLog $ "runMain entered 2b"
     let argv1' = map (mkGeneralLocated "on the commandline") argv1
+    liftIO $ appendLog $ "runMain entered 2c:argv1'=" ++ show (map unLoc argv1')
+    liftIO $ appendLog $ "runMain entered 2d"
     (argv2, staticFlagWarnings) <- parseStaticFlags argv1'
 
+    liftIO $ appendLog $ "runMain entered 3"
     -- 2. Parse the "mode" flags (--make, --interactive etc.)
     (mode, argv3, modeFlagWarnings) <- parseModeFlags argv2
 
+    liftIO $ appendLog $ "runMain entered 4"
     let flagWarnings = staticFlagWarnings ++ modeFlagWarnings
 
     -- If all we want to do is something like showing the version number
@@ -118,9 +136,12 @@ runMain runI = do
     -- number then bootstrapping gets confused, as it tries to find out
     -- what version of GHC it's using before package.conf exists, so
     -- starting the session fails.
+    liftIO $ appendLog $ "runMain about to do case mode"
     case mode of
         Left preStartupMode ->
-            do case preStartupMode of
+            do
+               liftIO $ appendLog $ "runMain got Left preStartupMode"
+               case preStartupMode of
                    ShowSupportedExtensions -> showSupportedExtensions
                    ShowVersion             -> showVersion
                    ShowNumVersion          -> putStrLn cProjectVersion
@@ -128,6 +149,7 @@ runMain runI = do
         Right postStartupMode ->
             -- start our GHC session
             GHC.runGhc mbMinusB $ do
+            liftIO $ appendLog $ "runMain got Left postStartupMode"
 
             dflags <- GHC.getSessionDynFlags
 
@@ -146,6 +168,7 @@ main' :: (Haskeline.Settings GHCi -> InputT GHCi () -> GHCi ())
       -> PostLoadMode -> DynFlags -> [Located String] -> [Located String]
       -> Ghc ()
 main' runI postLoadMode dflags0 args flagWarnings = do
+  liftIO $ appendLog $ "main' entered"
   -- set the default GhcMode, HscTarget and GhcLink.  The HscTarget
   -- can be further adjusted on a module by module basis, using only
   -- the -fvia-C and -fasm flags.  If the default HscTarget is not
@@ -239,6 +262,7 @@ main' runI postLoadMode dflags0 args flagWarnings = do
   liftIO $ checkOptions postLoadMode dflags6 srcs objs
 
   ---------------- Do the business -----------
+  liftIO $ appendLog $ "about to do the business"
   handleSourceError (\e -> do
        GHC.printException e
        liftIO $ exitWith (ExitFailure 1)) $ do

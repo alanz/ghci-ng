@@ -9,7 +9,9 @@ module HiePlugin
 
 import           Control.Concurrent
 import           Control.Monad
+import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
+import           Data.Time.Clock
 import qualified Data.Knob as K
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C8
@@ -49,7 +51,9 @@ runGhciNg :: Chan InData -> Chan OutData -> IO ()
 runGhciNg chin chout = do
   knob <- K.newKnob B.empty
   _ <- forkIO (hieToGhci chin knob)
-  runMain (runInputTBehavior (hieBehavior knob chout))
+  appendLog "runGhciNg:about to runMain"
+  runMain (runInputTBehavior (hieBehavior knob chout)) []
+  appendLog "runGhciNg:runMain done"
 
 -- ---------------------------------------------------------------------
 
@@ -59,10 +63,12 @@ hieToGhci :: Chan InData -> K.Knob -> IO ()
 hieToGhci cin knob = do
   forever $ do
     inMsg <- readChan cin
+    appendLog $ "hieToGhci:got:" ++ show inMsg
     case inMsg of
       Stdin str -> do
         cur <- K.getContents knob
         K.setContents knob (B.append cur (C8.pack str))
+        appendLog "hieToGhci:passed to knob"
     return ()
 
 -- ---------------------------------------------------------------------
@@ -75,7 +81,9 @@ runHieTerm knob cout = do
   hin <- K.newFileHandle knob "stdin" ReadMode
   return
     RunTerm
-      { putStrOut = \str -> writeChan cout (Stdout str)
+      { putStrOut = \str -> do
+          appendLog $ "putStrOut:str=" ++ str
+          writeChan cout (Stdout str)
       , closeTerm = return ()
       , wrapInterrupt = id
       , termOps = Right FileOps
@@ -88,10 +96,16 @@ runHieTerm knob cout = do
       }
 
 maybeGetChar :: Handle -> MaybeT IO Char
-maybeGetChar h = lift $ hGetChar h
+maybeGetChar h = do
+  c <- lift $ hGetChar h
+  liftIO $ appendLog $ "maybeGetChar:Got" ++ show c
+  return c
 
 maybeGetLine :: Handle -> MaybeT IO String
-maybeGetLine h = lift $ hGetLine h
+maybeGetLine h = do
+  str <- lift $ hGetLine h
+  liftIO $ appendLog $ "maybeGetLine:got[" ++ str ++ "]"
+  return str
 
 {-
 FileOps
@@ -101,3 +115,11 @@ FileOps
   getLocaleChar :: MaybeT IO Char
   maybeReadNewline :: IO ()
 -}
+
+-- ---------------------------------------------------------------------
+
+appendLog :: String -> IO ()
+appendLog str = do
+    now <- getCurrentTime
+    let str' = (show now) ++ ":" ++ str ++ "\n"
+    appendFile "/tmp/ghci-ng.log" str'

@@ -125,6 +125,8 @@ import GHC.IO.Exception ( IOErrorType(InvalidArgument) )
 import GHC.IO.Handle ( hFlushAll )
 import GHC.TopHandler ( topHandler )
 
+import           Data.Time.Clock
+
 #if __GLASGOW_HASKELL__ < 709
 packageString :: PackageId -> String
 packageString = packageIdString
@@ -594,10 +596,21 @@ runGHCiInput runI f = do
                 then liftIO $ withGhcAppData (\dir -> return (Just (dir </> "ghci_history")))
                                              (return Nothing)
                 else return Nothing
+    liftIO $ appendLog "runGHCiInput:about to runI"
     -- runInputT
     runI
         (setComplete ghciCompleteWord $ defaultSettings {historyFile = histFile})
         f
+
+-- ---------------------------------------------------------------------
+
+appendLog :: String -> IO ()
+appendLog str = do
+    now <- getCurrentTime
+    let str' = (show now) ++ ":" ++ str ++ "\n"
+    appendFile "/tmp/ghci-ng.log" str'
+
+-- ---------------------------------------------------------------------
 
 -- | How to get the next input line from the user
 nextInputLine :: Bool -> Bool -> InputT GHCi (Maybe String)
@@ -759,6 +772,7 @@ runCommands' eh sourceErrorHandler gCmd = do
 runOneCommand :: (SomeException -> GHCi Bool) -> InputT GHCi (Maybe String)
             -> InputT GHCi (Maybe Bool)
 runOneCommand eh gCmd = do
+  liftIO $ appendLog "runOneCommand entered"
   -- run a previously queued command if there is one, otherwise get new
   -- input from user
   mb_cmd0 <- noSpace (lift queryQueue)
